@@ -21,6 +21,7 @@ final class FilingArtifactAssemblyService
 {
     private \App\Services\Exhibits\ExhibitLinkageService $exhibitLinkageService;
     private \App\Services\Validation\IntentHashService $intentHashService;
+
     private const ARTIFACT_SCHEMA_VERSION = 2;
 
     /**
@@ -55,16 +56,17 @@ final class FilingArtifactAssemblyService
         ],
     ];
 
-
     public function __construct(
         private \PDO $db,
         ?\App\Services\Validation\IntentHashService $intentHashService = null,
         ?\App\Services\Exhibits\ExhibitLinkageService $exhibitLinkageService = null
     ) {
-        $this->intentHashService = $intentHashService
+        $this->intentHashService =
+            $intentHashService
             ?? new \App\Services\Validation\IntentHashService();
 
-        $this->exhibitLinkageService = $exhibitLinkageService
+        $this->exhibitLinkageService =
+            $exhibitLinkageService
             ?? new \App\Services\Exhibits\ExhibitLinkageService($this->db);
     }
 
@@ -95,9 +97,9 @@ final class FilingArtifactAssemblyService
             ];
         }
 
-        // ------------------------------------------------------------
-        // Canonical intent hash (single authority)
-        // ------------------------------------------------------------
+        /* ------------------------------------------------------------
+         * Canonical intent hash (single authority)
+         * ------------------------------------------------------------ */
 
         $intentHash = $this->intentHashService->compute($intent);
 
@@ -111,10 +113,22 @@ final class FilingArtifactAssemblyService
         $artifacts = [];
 
         /* ------------------------------------------------------------
-        * Normalize court type
-        * ------------------------------------------------------------ */
+         * Canonical court classification
+         *
+         * Filing/procedural decisions must use courts.court_type_code,
+         * propagated through FilingIntentAssembler.
+         *
+         * Expected values include:
+         *   GENERAL_TRIAL
+         *   LIMITED_TRIAL
+         * ------------------------------------------------------------ */
 
-        $courtType = strtolower($intent['court_display']['court_type'] ?? '');
+        $courtTypeCode =
+            $intent['court_display']['court_type_code'] ?? null;
+
+        if (!is_string($courtTypeCode) || $courtTypeCode === '') {
+            $courtTypeCode = null;
+        }
 
         foreach ($policy as $definition) {
 
@@ -130,15 +144,21 @@ final class FilingArtifactAssemblyService
             }
 
             /*
-            ------------------------------------------------------------
-            Superior Court only: compulsory arbitration certificate
-            ------------------------------------------------------------
-            */
+             * ------------------------------------------------------------
+             * Superior Court only: compulsory arbitration certificate
+             *
+             * GENERAL_TRIAL is the canonical court classification for
+             * Superior Court.
+             *
+             * Do not use human-readable court_type strings for this
+             * procedural decision.
+             * ------------------------------------------------------------
+             */
 
             if (
-                ($definition['type'] ?? null) === 'certificate_compulsory_arbitration'
-                && strtolower((string)$courtType) !== 'superior'
-                && (string)$courtType !== 'GENERAL_TRIAL'
+                ($definition['type'] ?? null)
+                    === 'certificate_compulsory_arbitration'
+                && $courtTypeCode !== 'GENERAL_TRIAL'
             ) {
                 continue;
             }
@@ -164,8 +184,8 @@ final class FilingArtifactAssemblyService
     ): string {
 
         /* ------------------------------------------------------------
-        * Trustee sale forcible detainer → never arbitrable
-        * ------------------------------------------------------------ */
+         * Trustee sale forcible detainer → never arbitrable
+         * ------------------------------------------------------------ */
 
         if ($actionType === 'az_trustee_sale_fd') {
             return 'exempt';
@@ -206,28 +226,31 @@ final class FilingArtifactAssemblyService
         if ($type === 'complaint') {
 
             // Phase 18 — Resolve deterministic exhibits
-        $resolvedExhibits = $this->exhibitLinkageService
-            ->materialize(
-                tenantId: (string)$intent['tenant_id'],
-                caseId: (string)$intent['case_id'],
-                legalActionId: (string)$intent['legal_action_id'],
-                actionType: (string)$intent['action_type'],
-                artifactType: 'complaint',
-                intentHash: $intentHash
-            );
+            $resolvedExhibits = $this->exhibitLinkageService
+                ->materialize(
+                    tenantId: (string)$intent['tenant_id'],
+                    caseId: (string)$intent['case_id'],
+                    legalActionId: (string)$intent['legal_action_id'],
+                    actionType: (string)$intent['action_type'],
+                    artifactType: 'complaint',
+                    intentHash: $intentHash
+                );
 
             $content = $this->buildStructuredComplaint(
                 intent: $intent,
                 resolvedExhibits: $resolvedExhibits
             );
-        
+
             error_log("=== COMPLAINT CONTENT DEBUG ===");
             error_log(json_encode($content, JSON_PRETTY_PRINT));
             error_log("=== END COMPLAINT CONTENT DEBUG ===");
-        
+
         } elseif ($type === 'summons') {
+
             $content = $this->buildStructuredSummons($intent);
+
         } elseif ($type === 'certificate_compulsory_arbitration') {
+
             $content = $this->buildStructuredCertificate($intent);
         }
 
@@ -248,7 +271,6 @@ final class FilingArtifactAssemblyService
 
             'content' => $content,
         ];
-
     }
 
     /* ============================================================
@@ -275,6 +297,7 @@ final class FilingArtifactAssemblyService
 
         return match (strtolower($type)) {
             'superior' => 'Superior',
+            'justice' => 'Justice',
             default => ucfirst($type),
         };
     }
@@ -313,14 +336,37 @@ final class FilingArtifactAssemblyService
 
     private function buildCourtHeading(array $court): array
     {
-        $courtType = strtolower($court['court_type'] ?? '');
+        /*
+         * Court structure decisions use the canonical machine-readable
+         * classification, not the human-readable court_type value.
+         */
+        $courtTypeCode = $court['court_type_code'] ?? null;
 
         return [
-            'state' => $this->normalizeState($court['court_state'] ?? null),
-            'county' => $this->normalizeCounty($court['court_county'] ?? null),
-            'court_type' => $this->normalizeCourtType($court['court_type'] ?? null),
-            'precinct' => $courtType === 'justice'
-                ? $this->normalizePrecinct($court['court_precinct'] ?? null)
+            'state' => $this->normalizeState(
+                $court['court_state'] ?? null
+            ),
+
+            'county' => $this->normalizeCounty(
+                $court['court_county'] ?? null
+            ),
+
+            /*
+             * Display value only.
+             */
+            'court_type' => $this->normalizeCourtType(
+                $court['court_type'] ?? null
+            ),
+
+            /*
+             * Arizona Justice Courts are LIMITED_TRIAL courts.
+             * Superior Court (GENERAL_TRIAL) does not use a precinct
+             * heading.
+             */
+            'precinct' => $courtTypeCode === 'LIMITED_TRIAL'
+                ? $this->normalizePrecinct(
+                    $court['court_precinct'] ?? null
+                )
                 : null,
         ];
     }
@@ -340,6 +386,7 @@ final class FilingArtifactAssemblyService
     private function defendantsWithFictitious(array $intent): array
     {
         $realDefendants = $intent['defendants'] ?? [];
+
         if (!is_array($realDefendants)) {
             $realDefendants = [];
         }
@@ -347,8 +394,12 @@ final class FilingArtifactAssemblyService
         $fictitious = $this->buildFictitiousOccupant($intent);
 
         $hasFictitious = false;
+
         foreach ($realDefendants as $d) {
-            if (is_array($d) && (($d['type'] ?? null) === 'fictitious')) {
+            if (
+                is_array($d)
+                && (($d['type'] ?? null) === 'fictitious')
+            ) {
                 $hasFictitious = true;
                 break;
             }
@@ -360,20 +411,29 @@ final class FilingArtifactAssemblyService
             $defendants[] = $fictitious;
         }
 
-        // Deterministic ordering: real first, fictitious last; stable within category by name
-        usort($defendants, function ($a, $b) {
-            $a = is_array($a) ? $a : [];
-            $b = is_array($b) ? $b : [];
+        // Deterministic ordering:
+        // real first, fictitious last;
+        // stable within category by name
+        usort(
+            $defendants,
+            function ($a, $b) {
 
-            $aF = ($a['type'] ?? null) === 'fictitious';
-            $bF = ($b['type'] ?? null) === 'fictitious';
+                $a = is_array($a) ? $a : [];
+                $b = is_array($b) ? $b : [];
 
-            if ($aF === $bF) {
-                return strcmp((string)($a['name'] ?? ''), (string)($b['name'] ?? ''));
+                $aF = ($a['type'] ?? null) === 'fictitious';
+                $bF = ($b['type'] ?? null) === 'fictitious';
+
+                if ($aF === $bF) {
+                    return strcmp(
+                        (string)($a['name'] ?? ''),
+                        (string)($b['name'] ?? '')
+                    );
+                }
+
+                return $aF ? 1 : -1;
             }
-
-            return $aF ? 1 : -1;
-        });
+        );
 
         return $defendants;
     }
@@ -381,7 +441,11 @@ final class FilingArtifactAssemblyService
     private function buildFictitiousOccupant(array $intent): ?array
     {
         $address = null;
-        if (!empty($intent['property']['address']) && is_array($intent['property']['address'])) {
+
+        if (
+            !empty($intent['property']['address'])
+            && is_array($intent['property']['address'])
+        ) {
             $address = $intent['property']['address'];
         }
 
@@ -390,6 +454,7 @@ final class FilingArtifactAssemblyService
             'type' => 'fictitious',
             'name' => 'John Doe Occupants 1–10',
             'address' => $address,
+
             'fictitious' => [
                 'kind' => 'occupant',
                 'reason' => 'unknown occupants',
@@ -404,16 +469,28 @@ final class FilingArtifactAssemblyService
     private function extractStreetAddressString(array $intent): ?string
     {
         // Primary canonical source: intent.property.address
-        if (!empty($intent['property']['address']) && is_array($intent['property']['address'])) {
-            return $this->formatAddressOneLine($intent['property']['address']);
+        if (
+            !empty($intent['property']['address'])
+            && is_array($intent['property']['address'])
+        ) {
+            return $this->formatAddressOneLine(
+                $intent['property']['address']
+            );
         }
 
         // Fallback (legacy safety): first defendant address
         $defendants = $intent['defendants'] ?? [];
+
         if (is_array($defendants)) {
             foreach ($defendants as $d) {
-                if (is_array($d) && !empty($d['address']) && is_array($d['address'])) {
-                    return $this->formatAddressOneLine($d['address']);
+                if (
+                    is_array($d)
+                    && !empty($d['address'])
+                    && is_array($d['address'])
+                ) {
+                    return $this->formatAddressOneLine(
+                        $d['address']
+                    );
                 }
             }
         }
@@ -423,30 +500,51 @@ final class FilingArtifactAssemblyService
 
     private function formatAddressOneLine(array $addr): ?string
     {
-        $line1 = isset($addr['line1']) ? trim((string)$addr['line1']) : '';
-        $line2 = isset($addr['line2']) ? trim((string)$addr['line2']) : '';
-        $city  = isset($addr['city']) ? trim((string)$addr['city']) : '';
-        $state = isset($addr['state']) ? trim((string)$addr['state']) : '';
-        $zip   = isset($addr['postal_code']) ? trim((string)$addr['postal_code']) : '';
+        $line1 = isset($addr['line1'])
+            ? trim((string)$addr['line1'])
+            : '';
+
+        $line2 = isset($addr['line2'])
+            ? trim((string)$addr['line2'])
+            : '';
+
+        $city = isset($addr['city'])
+            ? trim((string)$addr['city'])
+            : '';
+
+        $state = isset($addr['state'])
+            ? trim((string)$addr['state'])
+            : '';
+
+        $zip = isset($addr['postal_code'])
+            ? trim((string)$addr['postal_code'])
+            : '';
 
         if ($line1 === '') {
             return null;
         }
 
         $street = $line1;
+
         if ($line2 !== '') {
             $street .= ', ' . $line2;
         }
 
         $local = trim(
-            implode(' ', array_filter([
-                $city !== '' ? $city . ',' : '',
-                $state,
-                $zip,
-            ]))
+            implode(
+                ' ',
+                array_filter([
+                    $city !== '' ? $city . ',' : '',
+                    $state,
+                    $zip,
+                ])
+            )
         );
 
-        return trim($street . ($local !== '' ? ' ' . $local : ''));
+        return trim(
+            $street
+            . ($local !== '' ? ' ' . $local : '')
+        );
     }
 
     /* ============================================================
@@ -457,7 +555,7 @@ final class FilingArtifactAssemblyService
     {
         $plaintiffs = $intent['plaintiffs'] ?? [];
         $defendants = $this->defendantsWithFictitious($intent);
-        $court      = $intent['court_display'] ?? [];
+        $court = $intent['court_display'] ?? [];
 
         return [
             'document_structure_version' => 1,
@@ -493,6 +591,7 @@ final class FilingArtifactAssemblyService
                 'warning_present' => true,
                 'response_time_in_state_days' => 20,
                 'response_time_out_of_state_days' => 30,
+
                 'service_methods' => [
                     'registered_process_server',
                     'sheriff',
@@ -533,31 +632,43 @@ final class FilingArtifactAssemblyService
     {
         $plaintiffs = $intent['plaintiffs'] ?? [];
         $defendants = $this->defendantsWithFictitious($intent);
-        $court      = $intent['court_display'] ?? [];
+        $court = $intent['court_display'] ?? [];
 
         $county = $court['court_county'] ?? null;
         $actionType = $intent['action_type'] ?? null;
         $amount = $intent['amount_in_controversy'] ?? null;
 
         /* ------------------------------------------------------------
-        * Determine arbitration status
-        * ------------------------------------------------------------ */
+         * Determine arbitration status
+         * ------------------------------------------------------------ */
 
-        $status = $this->determineArbitrationStatus(
-            (string)$actionType,
-            (string)$county,
-            is_numeric($amount) ? (float)$amount : null
-        );
-
-        /* ------------------------------------------------------------
-        * Trustee-sale forcible detainer override
-        * ------------------------------------------------------------ */
+        /*
+        * ------------------------------------------------------------
+        * Forcible detainer proceedings are non-arbitrable for purposes
+        * of this filing certificate.
+        *
+        * Avoid invoking monetary arbitration-limit logic when the
+        * action type itself deterministically establishes exemption.
+        * ------------------------------------------------------------
+        */
 
         if ($actionType === 'az_forcible_detainer') {
+
             $status = 'exempt';
+
+        } else {
+
+            $status = $this->determineArbitrationStatus(
+                (string)$actionType,
+                (string)$county,
+                is_numeric($amount)
+                    ? (float)$amount
+                    : null
+            );
         }
 
-        $subjectToArbitration = ($status === 'eligible');
+        $subjectToArbitration =
+            ($status === 'eligible');
 
         return [
             'document_structure_version' => 2,
@@ -573,7 +684,8 @@ final class FilingArtifactAssemblyService
                 'attorneys_for' => 'Plaintiff',
             ],
 
-            'court_heading' => $this->buildCourtHeading($court),
+            'court_heading' =>
+                $this->buildCourtHeading($court),
 
             'caption' => [
                 'plaintiffs' => $plaintiffs,
@@ -584,12 +696,16 @@ final class FilingArtifactAssemblyService
             'certificate_body' => [
                 'relief_type' => 'non_monetary',
 
-                /* explicit status stored in bundle */
+                /*
+                 * Explicit status stored in bundle.
+                 */
                 'arbitration_status' => $status,
 
-                'subject_to_compulsory_arbitration' => $subjectToArbitration,
+                'subject_to_compulsory_arbitration' =>
+                    $subjectToArbitration,
 
-                'rule_reference' => 'Rule 72, Ariz.R.Civ.P.',
+                'rule_reference' =>
+                    'Rule 72, Ariz.R.Civ.P.',
             ],
 
             'signature_block' => [
@@ -602,13 +718,25 @@ final class FilingArtifactAssemblyService
 
             'filing_acknowledgment' => [
                 'filed_date' => null,
-                'clerk_name' => ($county ? $county . ' County Superior Court Clerk' : null),
+
+                'clerk_name' =>
+                    $county
+                        ? $county . ' County Superior Court Clerk'
+                        : null,
+
                 'clerk_address' => [
-                    'line1' => $court['court_address_line1'] ?? null,
-                    'city' => $court['court_city'] ?? null,
-                    'state' => $court['court_state'] ?? null,
+                    'line1' =>
+                        $court['court_address_line1'] ?? null,
+
+                    'city' =>
+                        $court['court_city'] ?? null,
+
+                    'state' =>
+                        $court['court_state'] ?? null,
+
                     'postal_code' => null,
                 ],
+
                 'deputy_signature' => null,
             ],
         ];
@@ -618,45 +746,61 @@ final class FilingArtifactAssemblyService
      * Structured Complaint Builder (Phase 16.6 Safe)
      * ============================================================ */
 
-    private function buildStructuredComplaint(array $intent, array $resolvedExhibits = []): array
-    {
+    private function buildStructuredComplaint(
+        array $intent,
+        array $resolvedExhibits = []
+    ): array {
+
         $plaintiffs = $intent['plaintiffs'] ?? [];
         $defendants = $this->defendantsWithFictitious($intent);
-        $court      = $intent['court_display'] ?? [];
+        $court = $intent['court_display'] ?? [];
 
         /* ============================================================
-        * PROPERTY NORMALIZATION
-        * ============================================================ */
-        $streetAddress = $this->extractStreetAddressString($intent);
+         * PROPERTY NORMALIZATION
+         * ============================================================ */
 
-        $legalDescription = is_string($intent['property']['legal_description'] ?? null)
-            ? $intent['property']['legal_description']
-            : null;
+        $streetAddress =
+            $this->extractStreetAddressString($intent);
+
+        $legalDescription =
+            is_string(
+                $intent['property']['legal_description'] ?? null
+            )
+                ? $intent['property']['legal_description']
+                : null;
 
         /* ============================================================
-        * DEMAND (Phase 17 field alignment)
-        * ============================================================ */
+         * DEMAND (Phase 17 field alignment)
+         * ============================================================ */
+
         $demand = $intent['demand'] ?? [];
 
-        $demandMethod = $demand['method']
+        $demandMethod =
+            $demand['method']
             ?? $demand['demand_method']
             ?? null;
 
-        $demandDate = $demand['date']
+        $demandDate =
+            $demand['date']
             ?? $demand['demand_date']
             ?? null;
 
-        $statutoryBasis = $demand['statutory_basis']
+        $statutoryBasis =
+            $demand['statutory_basis']
             ?? [
                 'A.R.S. §12-1173',
                 'A.R.S. §12-1173.01(A)(2)',
             ];
 
         /* ============================================================
-        * SIGNATURE (Phase 17 validator expects attorney_name)
-        * ============================================================ */
-        $signature = $intent['signature'] ?? [];
-        $attorney  = $intent['attorney'] ?? [];
+         * SIGNATURE (Phase 17 validator expects attorney_name)
+         * ============================================================ */
+
+        $signature =
+            $intent['signature'] ?? [];
+
+        $attorney =
+            $intent['attorney'] ?? [];
 
         $attorneyName =
             $signature['attorney_name']
@@ -671,60 +815,94 @@ final class FilingArtifactAssemblyService
         return [
             'document_structure_version' => 3,
 
-            'court_heading' => $this->buildCourtHeading($court),
+            'court_heading' =>
+                $this->buildCourtHeading($court),
 
             'caption' => [
-                'plaintiffs'         => $plaintiffs,
-                'defendants'         => $defendants,
-                'case_number'        => null,
-                'title'              => 'Complaint',
-                'statutory_reference'=> 'A.R.S. §12-1171 et seq.',
+                'plaintiffs' =>
+                    $plaintiffs,
+
+                'defendants' =>
+                    $defendants,
+
+                'case_number' =>
+                    null,
+
+                'title' =>
+                    'Complaint',
+
+                'statutory_reference' =>
+                    'A.R.S. §12-1171 et seq.',
             ],
 
             'sections' => [
 
-                /* ========================================================
-                * REQUIRED: PROPERTY ADDRESS
-                * ======================================================== */
+                /* ====================================================
+                 * REQUIRED: PROPERTY ADDRESS
+                 * ==================================================== */
+
                 'property_address' => [
-                    'street_address'    => $streetAddress,
-                    'legal_description' => $legalDescription,
+                    'street_address' =>
+                        $streetAddress,
+
+                    'legal_description' =>
+                        $legalDescription,
                 ],
 
-                /* ========================================================
-                * REQUIRED: DEMAND
-                * ======================================================== */
+                /* ====================================================
+                 * REQUIRED: DEMAND
+                 * ==================================================== */
+
                 'demand' => [
-                    'method'          => $demandMethod,
-                    'date'            => $demandDate,
-                    'statutory_basis' => $statutoryBasis,
+                    'method' =>
+                        $demandMethod,
+
+                    'date' =>
+                        $demandDate,
+
+                    'statutory_basis' =>
+                        $statutoryBasis,
                 ],
 
-                /* ========================================================
-                * REQUIRED: RELIEF
-                * ======================================================== */
+                /* ====================================================
+                 * REQUIRED: RELIEF
+                 * ==================================================== */
+
                 'relief' => [
-                    'possession_requested'              => true,
-                    'writ_of_restitution_requested'     => true,
-                    'reasonable_rental_value_requested' => true,
-                    'attorneys_fees_requested'          => true,
+                    'possession_requested' =>
+                        true,
+
+                    'writ_of_restitution_requested' =>
+                        true,
+
+                    'reasonable_rental_value_requested' =>
+                        true,
+
+                    'attorneys_fees_requested' =>
+                        true,
                 ],
 
-                /* ========================================================
-                * REQUIRED: EXHIBITS
-                *
-                * Phase 18:
-                * Deterministically populated from finalized
-                * case_documents via ExhibitLinkageService.
-                * ======================================================== */
-                'exhibits' => $resolvedExhibits,
+                /* ====================================================
+                 * REQUIRED: EXHIBITS
+                 *
+                 * Phase 18:
+                 * Deterministically populated from finalized
+                 * case_documents via ExhibitLinkageService.
+                 * ==================================================== */
 
-                /* ========================================================
-                * REQUIRED: SIGNATURE
-                * ======================================================== */
+                'exhibits' =>
+                    $resolvedExhibits,
+
+                /* ====================================================
+                 * REQUIRED: SIGNATURE
+                 * ==================================================== */
+
                 'signature' => [
-                    'attorney_name' => $attorneyName,
-                    'signed_date'   => $signedDate,
+                    'attorney_name' =>
+                        $attorneyName,
+
+                    'signed_date' =>
+                        $signedDate,
                 ],
             ],
         ];
