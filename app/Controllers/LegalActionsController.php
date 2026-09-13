@@ -11,6 +11,7 @@ use RuntimeException;
 final class LegalActionsController
 {
     private CaseEventService $events;
+
     public function __construct(
         private PDO $db,
         ?CaseEventService $events = null
@@ -28,7 +29,9 @@ final class LegalActionsController
         $caseId     = (string)$req['case_id'];
         $actionType = (string)$req['params']['action_type'];
 
-        $body = $req['body'] ?? [];
+        $body = is_array($req['body'] ?? null)
+            ? $req['body']
+            : [];
 
         $origin = $body['origin'] ?? null;
         if (!$origin) {
@@ -36,6 +39,21 @@ final class LegalActionsController
         }
 
         $parentId = $body['parent_legal_action_id'] ?? null;
+
+        $filingAttorneyActorId =
+            $body['filing_attorney_actor_id'] ?? null;
+
+        if (
+            $filingAttorneyActorId !== null
+            && (
+                !is_string($filingAttorneyActorId)
+                || !$this->isUuid($filingAttorneyActorId)
+            )
+        ) {
+            throw new RuntimeException(
+                'FILING_ATTORNEY_ACTOR_ID_INVALID'
+            );
+        }
 
         /*
          * Validate parent legal action
@@ -82,14 +100,70 @@ final class LegalActionsController
         ]);
 
         $existing = $st->fetch(PDO::FETCH_ASSOC);
+
         if ($existing) {
+
+            $existingAttorneyId =
+                $existing['filing_attorney_actor_id'] ?? null;
+
+            /*
+            * Idempotent retries must not silently change an immutable
+            * filing-attorney assignment.
+            */
+            if (
+                $filingAttorneyActorId !== null
+                && $existingAttorneyId !== $filingAttorneyActorId
+            ) {
+                throw new RuntimeException(
+                    'LEGAL_ACTION_FILING_ATTORNEY_CONFLICT'
+                );
+            }
+
             return $this->formatResponse($existing);
+        }
+
+        /*
+         * Validate filing attorney before legal action creation.
+         *
+         * legal_actions becomes immutable once initiated, so the filing
+         * attorney must be established as part of the original INSERT.
+         */
+        if ($filingAttorneyActorId !== null) {
+            $st = $this->db->prepare("
+                SELECT 1
+                FROM actors a
+                JOIN attorney_filing_profiles afp
+                  ON afp.actor_id = a.id
+                 AND afp.tenant_id = a.tenant_id
+                WHERE a.id = :actor_id
+                  AND a.tenant_id = :tenant_id
+                  AND afp.effective_from <= CURRENT_TIMESTAMP
+                  AND (
+                        afp.effective_to IS NULL
+                        OR afp.effective_to > CURRENT_TIMESTAMP
+                      )
+                ORDER BY afp.effective_from DESC, afp.id DESC
+                LIMIT 1
+            ");
+
+            $st->execute([
+                ':actor_id'  => $filingAttorneyActorId,
+                ':tenant_id' => $tenantId,
+            ]);
+
+            if (!$st->fetchColumn()) {
+                throw new RuntimeException(
+                    'FILING_ATTORNEY_INVALID_OR_INACTIVE'
+                );
+            }
         }
 
         /*
          * Create legal action
          */
-        $court = $body['court'] ?? [];
+        $court = is_array($body['court'] ?? null)
+            ? $body['court']
+            : [];
 
         $st = $this->db->prepare("
             INSERT INTO legal_actions (
@@ -99,6 +173,7 @@ final class LegalActionsController
                 status,
                 initiated_at,
                 created_by,
+                filing_attorney_actor_id,
                 parent_legal_action_id,
                 origin,
                 court_name,
@@ -115,6 +190,7 @@ final class LegalActionsController
                 'initiated',
                 NOW(),
                 :actor,
+                :filing_attorney_actor_id,
                 :parent,
                 :origin,
                 :court_name,
@@ -129,18 +205,19 @@ final class LegalActionsController
         ");
 
         $st->execute([
-            ':tenant'            => $tenantId,
-            ':case'              => $caseId,
-            ':action_type'       => $actionType,
-            ':actor'             => $actorId,
-            ':parent'            => $parentId,
-            ':origin'            => $origin,
-            ':court_name'        => $court['name'] ?? null,
-            ':court_type'        => $court['type'] ?? null,
-            ':court_city'        => $court['city'] ?? null,
-            ':court_state'       => $court['state'] ?? null,
-            ':court_county'      => $court['county'] ?? null,
-            ':court_case_number' => $court['case_number'] ?? null,
+            ':tenant'                     => $tenantId,
+            ':case'                       => $caseId,
+            ':action_type'                => $actionType,
+            ':actor'                      => $actorId,
+            ':filing_attorney_actor_id'   => $filingAttorneyActorId,
+            ':parent'                     => $parentId,
+            ':origin'                     => $origin,
+            ':court_name'                 => $court['name'] ?? null,
+            ':court_type'                 => $court['type'] ?? null,
+            ':court_city'                 => $court['city'] ?? null,
+            ':court_state'                => $court['state'] ?? null,
+            ':court_county'               => $court['county'] ?? null,
+            ':court_case_number'          => $court['case_number'] ?? null,
         ]);
 
         $id = (string)$st->fetchColumn();
@@ -155,6 +232,7 @@ final class LegalActionsController
                 'case_id' => $caseId,
                 'action_type' => $actionType,
                 'origin' => $origin,
+                'filing_attorney_actor_id' => $filingAttorneyActorId,
                 'parent_legal_action_id' => $parentId,
                 'court' => $court,
             ],
@@ -171,6 +249,7 @@ final class LegalActionsController
                 'action_type' => $actionType,
                 'action_status' => 'initiated',
                 'origin' => $origin,
+                'filing_attorney_actor_id' => $filingAttorneyActorId,
                 'parent_legal_action_id' => $parentId,
                 'court' => [
                     'name' => $court['name'] ?? null,
@@ -200,6 +279,7 @@ final class LegalActionsController
                 action_type,
                 status,
                 initiated_at,
+                filing_attorney_actor_id,
                 parent_legal_action_id,
                 origin,
                 court_name,
@@ -210,7 +290,7 @@ final class LegalActionsController
                 court_case_number
             FROM legal_actions
             WHERE tenant_id = :tenant
-            AND case_id = :case
+              AND case_id = :case
             ORDER BY initiated_at ASC
         ");
 
@@ -232,7 +312,10 @@ final class LegalActionsController
                             'action_type' => $row['action_type'],
                             'action_status' => $row['status'],
                             'origin' => $row['origin'],
-                            'parent_legal_action_id' => $row['parent_legal_action_id'],
+                            'filing_attorney_actor_id' =>
+                                $row['filing_attorney_actor_id'] ?? null,
+                            'parent_legal_action_id' =>
+                                $row['parent_legal_action_id'],
                             'initiated_at' => $row['initiated_at'],
                             'court' => $this->buildCourtSnapshot($row),
                         ];
@@ -258,14 +341,14 @@ final class LegalActionsController
         }
 
         return [
-            'court_name'        => $row['court_name'],
-            'court_type'        => $row['court_type'],
-            'court_city'        => $row['court_city'],
-            'court_state'       => $row['court_state'],
-            'court_county'      => $row['court_county'],
-            'court_case_number' => $row['court_case_number'],
-            'informational_only'=> true,
-            'validated'         => false,
+            'court_name'         => $row['court_name'],
+            'court_type'         => $row['court_type'],
+            'court_city'         => $row['court_city'],
+            'court_state'        => $row['court_state'],
+            'court_county'       => $row['court_county'],
+            'court_case_number'  => $row['court_case_number'],
+            'informational_only' => true,
+            'validated'          => false,
         ];
     }
 
@@ -279,10 +362,21 @@ final class LegalActionsController
                 'action_type' => $row['action_type'],
                 'action_status' => $row['status'],
                 'origin' => $row['origin'],
-                'parent_legal_action_id' => $row['parent_legal_action_id'],
+                'filing_attorney_actor_id' =>
+                    $row['filing_attorney_actor_id'] ?? null,
+                'parent_legal_action_id' =>
+                    $row['parent_legal_action_id'],
                 'court' => $this->buildCourtSnapshot($row),
                 'initiated_at' => $row['initiated_at'] ?? null,
             ],
         ];
+    }
+
+    private function isUuid(string $value): bool
+    {
+        return preg_match(
+            '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/',
+            $value
+        ) === 1;
     }
 }

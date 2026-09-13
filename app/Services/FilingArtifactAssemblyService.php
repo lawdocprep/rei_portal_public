@@ -547,6 +547,101 @@ final class FilingArtifactAssemblyService
         );
     }
 
+    private function primaryRealDefendant(array $intent): ?array
+    {
+        $defendants = $intent['defendants'] ?? [];
+
+        if (!is_array($defendants)) {
+            return null;
+        }
+
+        foreach ($defendants as $defendant) {
+            if (
+                is_array($defendant)
+                && ($defendant['intent_role'] ?? null) === 'defendant'
+                && ($defendant['type'] ?? null) === 'real'
+                && trim((string)($defendant['name'] ?? '')) !== ''
+            ) {
+                return $defendant;
+            }
+        }
+
+        return null;
+    }
+
+    private function filingLocations(array $court): array
+    {
+        $locations = $court['filing_locations'] ?? [];
+
+        return is_array($locations)
+            ? $locations
+            : [];
+    }
+
+    private function attorneyBlock(array $intent): array
+    {
+        $attorney = $intent['attorney'] ?? [];
+
+        if (!is_array($attorney)) {
+            $attorney = [];
+        }
+
+        return [
+            'attorney_name' =>
+                $attorney['name'] ?? null,
+
+            'bar_number' =>
+                $attorney['bar_number'] ?? null,
+
+            'firm_name' =>
+                $attorney['firm_name'] ?? null,
+
+            'address' =>
+                $attorney['address'] ?? null,
+
+            'phone' =>
+                $attorney['phone'] ?? null,
+
+            'email' =>
+                $attorney['email'] ?? null,
+
+            'attorneys_for' =>
+                'Plaintiff',
+        ];
+    }
+
+    private function attorneySignatureBlock(array $intent): array
+    {
+        $attorney = $intent['attorney'] ?? [];
+        $signature = $intent['signature'] ?? [];
+
+        if (!is_array($attorney)) {
+            $attorney = [];
+        }
+
+        if (!is_array($signature)) {
+            $signature = [];
+        }
+
+        return [
+            'submitted_date' =>
+                $signature['signed_date'] ?? null,
+
+            'law_firm_name' =>
+                $attorney['firm_name'] ?? null,
+
+            'attorney_name' =>
+                $signature['attorney_name']
+                ?? $attorney['name']
+                ?? null,
+
+            'address' =>
+                $attorney['address'] ?? null,
+
+            'phone' =>
+                $attorney['phone'] ?? null,
+        ];
+    }
     /* ============================================================
      * Structured Summons Builder (Phase 16.6 Safe)
      * ============================================================ */
@@ -557,39 +652,46 @@ final class FilingArtifactAssemblyService
         $defendants = $this->defendantsWithFictitious($intent);
         $court = $intent['court_display'] ?? [];
 
+        $primaryDefendant =
+            $this->primaryRealDefendant($intent);
+
         return [
             'document_structure_version' => 1,
             'action_type' => $intent['action_type'],
 
-            'attorney_block' => [
-                'attorney_name' => null,
-                'bar_number' => null,
-                'firm_name' => null,
-                'address' => null,
-                'phone' => null,
-                'email' => null,
-                'attorneys_for' => 'Plaintiff',
-            ],
+            'attorney_block' =>
+                $this->attorneyBlock($intent),
 
-            'court_heading' => $this->buildCourtHeading($court),
+            'court_heading' =>
+                $this->buildCourtHeading($court),
 
             'caption' => [
                 'plaintiffs' => $plaintiffs,
                 'defendants' => $defendants,
-                'case_number' => null,
+
+                'case_number' =>
+                    $court['court_case_number'] ?? null,
+
                 'title' => 'Summons',
                 'subtitle' => 'Forcible Entry and Detainer',
             ],
 
             'service_block' => [
-                'recipient_label' => 'FROM THE STATE OF ARIZONA TO:',
-                'recipient_name' => null,
-                'recipient_address' => null,
+                'recipient_label' =>
+                    'FROM THE STATE OF ARIZONA TO:',
+
+                'recipient_name' =>
+                    $primaryDefendant['name'] ?? null,
+
+                'recipient_address' =>
+                    $primaryDefendant['address'] ?? null,
             ],
 
             'statutory_notice' => [
                 'warning_present' => true,
+
                 'response_time_in_state_days' => 20,
+
                 'response_time_out_of_state_days' => 30,
 
                 'service_methods' => [
@@ -600,11 +702,8 @@ final class FilingArtifactAssemblyService
             ],
 
             'clerk_information' => [
-                'filing_locations' => [
-                    'Phoenix',
-                    'Mesa',
-                    'Surprise',
-                ],
+                'filing_locations' =>
+                    $this->filingLocations($court),
             ],
 
             'accommodation_notice' => [
@@ -618,7 +717,10 @@ final class FilingArtifactAssemblyService
 
             'signature_block' => [
                 'signed_and_sealed_date' => null,
-                'clerk' => 'Maricopa County Superior Court Clerk',
+
+                'clerk' =>
+                    $court['clerk_name'] ?? null,
+
                 'deputy_clerk_signature' => null,
             ],
         ];
@@ -674,15 +776,8 @@ final class FilingArtifactAssemblyService
             'document_structure_version' => 2,
             'action_type' => $intent['action_type'],
 
-            'attorney_block' => [
-                'attorney_name' => null,
-                'bar_number' => null,
-                'firm_name' => null,
-                'address' => null,
-                'phone' => null,
-                'email' => null,
-                'attorneys_for' => 'Plaintiff',
-            ],
+            'attorney_block' =>
+                $this->attorneyBlock($intent),
 
             'court_heading' =>
                 $this->buildCourtHeading($court),
@@ -690,7 +785,8 @@ final class FilingArtifactAssemblyService
             'caption' => [
                 'plaintiffs' => $plaintiffs,
                 'defendants' => $defendants,
-                'case_number' => null,
+                'case_number' =>
+                    $court['court_case_number'] ?? null,
             ],
 
             'certificate_body' => [
@@ -708,37 +804,26 @@ final class FilingArtifactAssemblyService
                     'Rule 72, Ariz.R.Civ.P.',
             ],
 
-            'signature_block' => [
-                'submitted_date' => null,
-                'law_firm_name' => null,
-                'attorney_name' => null,
-                'address' => null,
-                'phone' => null,
-            ],
+            'signature_block' =>
+                $this->attorneySignatureBlock($intent),
 
             'filing_acknowledgment' => [
                 'filed_date' => null,
 
                 'clerk_name' =>
-                    $county
-                        ? $county . ' County Superior Court Clerk'
-                        : null,
+                    $court['clerk_name'] ?? null,
 
-                'clerk_address' => [
-                    'line1' =>
-                        $court['court_address_line1'] ?? null,
-
-                    'city' =>
-                        $court['court_city'] ?? null,
-
-                    'state' =>
-                        $court['court_state'] ?? null,
-
-                    'postal_code' => null,
-                ],
+                'clerk_address' =>
+                    $court['court_address'] ?? [
+                        'line1' => null,
+                        'line2' => null,
+                        'city' => null,
+                        'state' => null,
+                        'postal_code' => null,
+                    ],
 
                 'deputy_signature' => null,
-            ],
+            ]
         ];
     }
 
@@ -826,7 +911,7 @@ final class FilingArtifactAssemblyService
                     $defendants,
 
                 'case_number' =>
-                    null,
+                    $court['court_case_number'] ?? null,
 
                 'title' =>
                     'Complaint',
