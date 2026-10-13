@@ -423,12 +423,12 @@ $$;
 
 CREATE FUNCTION public.document_exports_reject_mutation() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    RAISE EXCEPTION
-        'document_exports rows are immutable'
-        USING ERRCODE = 'check_violation';
-END;
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'document_exports rows are immutable'
+        USING ERRCODE = 'check_violation';
+END;
 $$;
 
 
@@ -438,24 +438,24 @@ $$;
 
 CREATE FUNCTION public.enforce_case_document_post_submit_immutability() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    IF OLD.status = 'submitted' THEN
-        IF NEW.status IS DISTINCT FROM OLD.status THEN
-            RAISE EXCEPTION
-                'case_document % is submitted and immutable (status)',
-                OLD.id;
-        END IF;
-
-        IF NEW.current_version_id IS DISTINCT FROM OLD.current_version_id THEN
-            RAISE EXCEPTION
-                'case_document % is submitted and immutable (current_version_id)',
-                OLD.id;
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END;
+    AS $$
+BEGIN
+    IF OLD.status = 'submitted' THEN
+        IF NEW.status IS DISTINCT FROM OLD.status THEN
+            RAISE EXCEPTION
+                'case_document % is submitted and immutable (status)',
+                OLD.id;
+        END IF;
+
+        IF NEW.current_version_id IS DISTINCT FROM OLD.current_version_id THEN
+            RAISE EXCEPTION
+                'case_document % is submitted and immutable (current_version_id)',
+                OLD.id;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
 $$;
 
 
@@ -465,56 +465,56 @@ $$;
 
 CREATE FUNCTION public.enforce_court_jurisdiction_unit_type() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-DECLARE
-    ju_type text;
-BEGIN
-    IF NEW.jurisdiction_unit_id IS NULL THEN
-        RAISE EXCEPTION 'COURT_JURISDICTION_UNIT_REQUIRED';
-    END IF;
-
-    SELECT unit_type
-    INTO ju_type
-    FROM jurisdiction_units
-    WHERE id = NEW.jurisdiction_unit_id;
-
-    IF ju_type IS NULL THEN
-        RAISE EXCEPTION 'JURISDICTION_UNIT_NOT_FOUND';
-    END IF;
-
-    CASE NEW.court_type_code
-        WHEN 'GENERAL_TRIAL' THEN
-            IF ju_type <> 'county' THEN
-                RAISE EXCEPTION
-                    'GENERAL_TRIAL courts must reference county units';
-            END IF;
-
-        WHEN 'LIMITED_TRIAL' THEN
-            IF ju_type <> 'justice_precinct' THEN
-                RAISE EXCEPTION
-                    'LIMITED_TRIAL courts must reference justice_precinct units';
-            END IF;
-
-        WHEN 'APPELLATE' THEN
-            IF ju_type <> 'state' THEN
-                RAISE EXCEPTION
-                    'APPELLATE courts must reference state units';
-            END IF;
-
-        WHEN 'SUPREME' THEN
-            IF ju_type <> 'state' THEN
-                RAISE EXCEPTION
-                    'SUPREME courts must reference state units';
-            END IF;
-
-        ELSE
-            RAISE EXCEPTION
-                'Unsupported court_type_code: %',
-                NEW.court_type_code;
-    END CASE;
-
-    RETURN NEW;
-END;
+    AS $$
+DECLARE
+    ju_type text;
+BEGIN
+    IF NEW.jurisdiction_unit_id IS NULL THEN
+        RAISE EXCEPTION 'COURT_JURISDICTION_UNIT_REQUIRED';
+    END IF;
+
+    SELECT unit_type
+    INTO ju_type
+    FROM jurisdiction_units
+    WHERE id = NEW.jurisdiction_unit_id;
+
+    IF ju_type IS NULL THEN
+        RAISE EXCEPTION 'JURISDICTION_UNIT_NOT_FOUND';
+    END IF;
+
+    CASE NEW.court_type_code
+        WHEN 'GENERAL_TRIAL' THEN
+            IF ju_type <> 'county' THEN
+                RAISE EXCEPTION
+                    'GENERAL_TRIAL courts must reference county units';
+            END IF;
+
+        WHEN 'LIMITED_TRIAL' THEN
+            IF ju_type <> 'justice_precinct' THEN
+                RAISE EXCEPTION
+                    'LIMITED_TRIAL courts must reference justice_precinct units';
+            END IF;
+
+        WHEN 'APPELLATE' THEN
+            IF ju_type <> 'state' THEN
+                RAISE EXCEPTION
+                    'APPELLATE courts must reference state units';
+            END IF;
+
+        WHEN 'SUPREME' THEN
+            IF ju_type <> 'state' THEN
+                RAISE EXCEPTION
+                    'SUPREME courts must reference state units';
+            END IF;
+
+        ELSE
+            RAISE EXCEPTION
+                'Unsupported court_type_code: %',
+                NEW.court_type_code;
+    END CASE;
+
+    RETURN NEW;
+END;
 $$;
 
 
@@ -621,30 +621,30 @@ $$;
 
 CREATE FUNCTION public.enforce_final_document_immutability() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    -- Only care about UPDATEs
-    IF TG_OP <> 'UPDATE' THEN
-        RETURN NEW;
-    END IF;
-
-    -- If the version is final, block changes to storage_uri or content_hash
-    IF OLD.is_final = true THEN
-        IF NEW.storage_uri IS DISTINCT FROM OLD.storage_uri THEN
-            RAISE EXCEPTION
-                'storage_uri is immutable for finalized document versions'
-                USING ERRCODE = 'integrity_constraint_violation';
-        END IF;
-
-        IF NEW.content_hash IS DISTINCT FROM OLD.content_hash THEN
-            RAISE EXCEPTION
-                'content_hash is immutable for finalized document versions'
-                USING ERRCODE = 'integrity_constraint_violation';
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END;
+    AS $$
+BEGIN
+    -- Only care about UPDATEs
+    IF TG_OP <> 'UPDATE' THEN
+        RETURN NEW;
+    END IF;
+
+    -- If the version is final, block changes to storage_uri or content_hash
+    IF OLD.is_final = true THEN
+        IF NEW.storage_uri IS DISTINCT FROM OLD.storage_uri THEN
+            RAISE EXCEPTION
+                'storage_uri is immutable for finalized document versions'
+                USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+
+        IF NEW.content_hash IS DISTINCT FROM OLD.content_hash THEN
+            RAISE EXCEPTION
+                'content_hash is immutable for finalized document versions'
+                USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
 $$;
 
 
@@ -832,17 +832,33 @@ CREATE FUNCTION public.guard_legal_action_mutation() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-    v_tenant_id uuid;
-    v_case_id uuid;
+    v_tenant_id       uuid;
+    v_case_id         uuid;
     v_legal_action_id uuid;
-    v_state text;
+    v_state           text;
 BEGIN
-    v_tenant_id      := COALESCE(NEW.tenant_id, OLD.tenant_id);
-    v_case_id        := COALESCE(NEW.case_id, OLD.case_id);
-    v_legal_action_id := COALESCE(NEW.legal_action_id, OLD.legal_action_id);
+    v_tenant_id := COALESCE(
+        NEW.tenant_id,
+        OLD.tenant_id
+    );
+
+    v_case_id := COALESCE(
+        NEW.case_id,
+        OLD.case_id
+    );
+
+    /*
+     * This trigger is attached directly to legal_actions.
+     * The legal action's primary key is "id".
+     */
+    v_legal_action_id := COALESCE(
+        NEW.id,
+        OLD.id
+    );
 
     IF v_tenant_id IS NULL OR v_case_id IS NULL THEN
-        RAISE EXCEPTION 'GUARD_LEGAL_ACTION_MUTATION_REQUIRES_TENANT_AND_CASE'
+        RAISE EXCEPTION
+            'GUARD_LEGAL_ACTION_MUTATION_REQUIRES_TENANT_AND_CASE'
             USING ERRCODE = '45000';
     END IF;
 
@@ -853,7 +869,9 @@ BEGIN
     );
 
     IF v_state <> 'mutable' THEN
-        RAISE EXCEPTION 'CASE_FROZEN_%', upper(v_state)
+        RAISE EXCEPTION
+            'CASE_FROZEN_%',
+            upper(v_state)
             USING ERRCODE = '45000';
     END IF;
 
@@ -895,10 +913,10 @@ $$;
 
 CREATE FUNCTION public.prevent_audit_mutation() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    RAISE EXCEPTION 'audit_events are immutable';
-END;
+    AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_events are immutable';
+END;
 $$;
 
 
@@ -908,13 +926,13 @@ $$;
 
 CREATE FUNCTION public.prevent_finalized_version_reassignment() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    IF OLD.status = 'final' AND NEW.current_version_id <> OLD.current_version_id THEN
-        RAISE EXCEPTION 'Cannot change current_version_id of finalized case_document';
-    END IF;
-    RETURN NEW;
-END;
+    AS $$
+BEGIN
+    IF OLD.status = 'final' AND NEW.current_version_id <> OLD.current_version_id THEN
+        RAISE EXCEPTION 'Cannot change current_version_id of finalized case_document';
+    END IF;
+    RETURN NEW;
+END;
 $$;
 
 
@@ -924,24 +942,24 @@ $$;
 
 CREATE FUNCTION public.prevent_versions_after_case_document_submit() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-DECLARE
-    cd_status text;
-BEGIN
-    SELECT status
-    INTO cd_status
-    FROM case_documents
-    WHERE current_version_id = NEW.id
-    LIMIT 1;
-
-    IF cd_status IS NOT NULL AND cd_status <> 'draft' THEN
-        RAISE EXCEPTION
-            'Cannot add versions when case_document status is %',
-            cd_status;
-    END IF;
-
-    RETURN NEW;
-END;
+    AS $$
+DECLARE
+    cd_status text;
+BEGIN
+    SELECT status
+    INTO cd_status
+    FROM case_documents
+    WHERE current_version_id = NEW.id
+    LIMIT 1;
+
+    IF cd_status IS NOT NULL AND cd_status <> 'draft' THEN
+        RAISE EXCEPTION
+            'Cannot add versions when case_document status is %',
+            cd_status;
+    END IF;
+
+    RETURN NEW;
+END;
 $$;
 
 
@@ -951,13 +969,13 @@ $$;
 
 CREATE FUNCTION public.reject_mutation() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-BEGIN
-    RAISE EXCEPTION
-        'Mutation forbidden: table "%" is immutable',
-        TG_TABLE_NAME
-        USING ERRCODE = 'check_violation';
-END;
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'Mutation forbidden: table "%" is immutable',
+        TG_TABLE_NAME
+        USING ERRCODE = 'check_violation';
+END;
 $$;
 
 
@@ -1206,6 +1224,68 @@ CREATE TABLE public.assignments (
     status text NOT NULL,
     created_by uuid
 );
+
+
+--
+-- Name: attorney_filing_profiles; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.attorney_filing_profiles (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    tenant_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    display_name text NOT NULL,
+    bar_number text NOT NULL,
+    firm_name text,
+    address_line1 text NOT NULL,
+    address_line2 text,
+    city text NOT NULL,
+    state text NOT NULL,
+    postal_code text NOT NULL,
+    phone text,
+    email text,
+    effective_from timestamp with time zone DEFAULT now() NOT NULL,
+    effective_to timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT attorney_filing_profiles_bar_number_check CHECK ((btrim(bar_number) <> ''::text)),
+    CONSTRAINT attorney_filing_profiles_display_name_check CHECK ((btrim(display_name) <> ''::text)),
+    CONSTRAINT attorney_filing_profiles_effective_range_check CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
+);
+
+
+--
+-- Name: TABLE attorney_filing_profiles; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.attorney_filing_profiles IS 'Temporal attorney-specific filing identity and professional credentials associated with an actor.';
+
+
+--
+-- Name: COLUMN attorney_filing_profiles.actor_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.attorney_filing_profiles.actor_id IS 'Actor representing the attorney whose filing credentials are described by this profile.';
+
+
+--
+-- Name: COLUMN attorney_filing_profiles.bar_number; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.attorney_filing_profiles.bar_number IS 'Attorney bar number used on court filings.';
+
+
+--
+-- Name: COLUMN attorney_filing_profiles.effective_from; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.attorney_filing_profiles.effective_from IS 'Timestamp at which this professional filing profile becomes effective.';
+
+
+--
+-- Name: COLUMN attorney_filing_profiles.effective_to; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.attorney_filing_profiles.effective_to IS 'Timestamp at which this professional filing profile ceases to be effective; NULL means currently active.';
 
 
 --
@@ -1596,6 +1676,73 @@ CREATE TABLE public.counties (
     fips_code text,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: court_filing_locations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.court_filing_locations (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    court_id uuid NOT NULL,
+    location_name text NOT NULL,
+    address_line1 text NOT NULL,
+    address_line2 text,
+    city text NOT NULL,
+    state text NOT NULL,
+    postal_code text NOT NULL,
+    clerk_name text,
+    accepts_filings boolean DEFAULT true NOT NULL,
+    is_primary boolean DEFAULT false NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    effective_from date DEFAULT CURRENT_DATE NOT NULL,
+    effective_to date,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT court_filing_locations_effective_range_check CHECK (((effective_to IS NULL) OR (effective_to >= effective_from))),
+    CONSTRAINT court_filing_locations_sort_order_check CHECK ((sort_order >= 0))
+);
+
+
+--
+-- Name: TABLE court_filing_locations; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.court_filing_locations IS 'Temporal physical filing locations and clerk information for courts. Used by filing intent and artifact generation.';
+
+
+--
+-- Name: COLUMN court_filing_locations.court_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.court_filing_locations.court_id IS 'Court to which this filing location belongs. Venue resolution continues to resolve the court, not the filing location.';
+
+
+--
+-- Name: COLUMN court_filing_locations.accepts_filings; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.court_filing_locations.accepts_filings IS 'Whether this location is currently eligible to receive filings.';
+
+
+--
+-- Name: COLUMN court_filing_locations.is_primary; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.court_filing_locations.is_primary IS 'Identifies the preferred/default filing location when a specific location has not otherwise been selected.';
+
+
+--
+-- Name: COLUMN court_filing_locations.effective_from; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.court_filing_locations.effective_from IS 'First date on which this filing-location configuration is effective.';
+
+
+--
+-- Name: COLUMN court_filing_locations.effective_to; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.court_filing_locations.effective_to IS 'Last date on which this configuration is effective; NULL means currently active.';
 
 
 --
@@ -2495,8 +2642,16 @@ CREATE TABLE public.legal_actions (
     court_state text,
     court_county text,
     court_case_number text,
-    intent_hash text
+    intent_hash text,
+    filing_attorney_actor_id uuid
 );
+
+
+--
+-- Name: COLUMN legal_actions.filing_attorney_actor_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.legal_actions.filing_attorney_actor_id IS 'Actor explicitly assigned as filing attorney/attorney of record for this legal action.';
 
 
 --
@@ -2822,6 +2977,31 @@ CREATE TABLE public.property_images (
 
 
 --
+-- Name: property_jurisdiction_assignments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.property_jurisdiction_assignments (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    property_id uuid NOT NULL,
+    jurisdiction_type text NOT NULL,
+    jurisdiction_unit_id uuid NOT NULL,
+    boundary_id uuid NOT NULL,
+    resolution_method text NOT NULL,
+    coordinate_lat double precision NOT NULL,
+    coordinate_lng double precision NOT NULL,
+    resolved_at timestamp with time zone DEFAULT now() NOT NULL,
+    valid_from timestamp with time zone DEFAULT now() NOT NULL,
+    valid_to timestamp with time zone,
+    source_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT pja_dates_chk CHECK (((valid_to IS NULL) OR (valid_to > valid_from))),
+    CONSTRAINT pja_lat_lng_chk CHECK ((((coordinate_lat >= ('-90'::integer)::double precision) AND (coordinate_lat <= (90)::double precision)) AND ((coordinate_lng >= ('-180'::integer)::double precision) AND (coordinate_lng <= (180)::double precision)))),
+    CONSTRAINT pja_metadata_object_chk CHECK ((jsonb_typeof(source_metadata) = 'object'::text)),
+    CONSTRAINT pja_method_nonempty_chk CHECK ((length(btrim(resolution_method)) > 0)),
+    CONSTRAINT pja_type_chk CHECK ((jurisdiction_type = ANY (ARRAY['county'::text, 'justice_precinct'::text])))
+);
+
+
+--
 -- Name: property_relationships; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3128,6 +3308,29 @@ CREATE TABLE public.tenant_phase_permissions (
 
 
 --
+-- Name: tenant_properties; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tenant_properties (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    tenant_id uuid NOT NULL,
+    property_id uuid NOT NULL,
+    added_by_user_id uuid,
+    portfolio_status text DEFAULT 'watching'::text NOT NULL,
+    private_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    legacy_owner_actor_id uuid,
+    acquisition_date date,
+    acquisition_method text,
+    legacy_deed_references jsonb,
+    chain_of_title_notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT tenant_properties_private_metadata_object CHECK ((jsonb_typeof(private_metadata) = 'object'::text)),
+    CONSTRAINT tenant_properties_status_nonempty CHECK ((length(btrim(portfolio_status)) > 0))
+);
+
+
+--
 -- Name: tenant_timeline_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3427,6 +3630,14 @@ ALTER TABLE ONLY public.assignments
 
 
 --
+-- Name: attorney_filing_profiles attorney_filing_profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attorney_filing_profiles
+    ADD CONSTRAINT attorney_filing_profiles_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: audit_events audit_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3632,6 +3843,14 @@ ALTER TABLE ONLY public.counties
 
 ALTER TABLE ONLY public.counties
     ADD CONSTRAINT counties_state_id_name_key UNIQUE (state_id, name);
+
+
+--
+-- Name: court_filing_locations court_filing_locations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.court_filing_locations
+    ADD CONSTRAINT court_filing_locations_pkey PRIMARY KEY (id);
 
 
 --
@@ -4323,6 +4542,14 @@ ALTER TABLE ONLY public.property_images
 
 
 --
+-- Name: property_jurisdiction_assignments property_jurisdiction_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_jurisdiction_assignments
+    ADD CONSTRAINT property_jurisdiction_assignments_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: property_relationships property_relationships_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4472,6 +4699,22 @@ ALTER TABLE ONLY public.tenant_phase_permissions
 
 ALTER TABLE ONLY public.tenant_phase_permissions
     ADD CONSTRAINT tenant_phase_permissions_tenant_id_phase_key UNIQUE (tenant_id, phase);
+
+
+--
+-- Name: tenant_properties tenant_properties_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tenant_properties
+    ADD CONSTRAINT tenant_properties_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: tenant_properties tenant_properties_tenant_property_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tenant_properties
+    ADD CONSTRAINT tenant_properties_tenant_property_uq UNIQUE (tenant_id, property_id);
 
 
 --
@@ -4820,6 +5063,13 @@ CREATE INDEX idx_ade_lookup ON public.action_document_expectations USING btree (
 
 
 --
+-- Name: idx_attorney_filing_profiles_actor; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_attorney_filing_profiles_actor ON public.attorney_filing_profiles USING btree (tenant_id, actor_id, effective_from, effective_to);
+
+
+--
 -- Name: idx_audit_events_actor; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4936,6 +5186,20 @@ CREATE INDEX idx_cases_filing_committed ON public.cases USING btree (tenant_id, 
 --
 
 CREATE INDEX idx_counties_state_id ON public.counties USING btree (state_id);
+
+
+--
+-- Name: idx_court_filing_locations_active_lookup; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_court_filing_locations_active_lookup ON public.court_filing_locations USING btree (court_id, accepts_filings, is_primary DESC, sort_order, location_name);
+
+
+--
+-- Name: idx_court_filing_locations_court; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_court_filing_locations_court ON public.court_filing_locations USING btree (court_id, effective_from, effective_to);
 
 
 --
@@ -5394,6 +5658,13 @@ CREATE INDEX idx_legal_action_steps_phase ON public.legal_action_steps USING btr
 
 
 --
+-- Name: idx_legal_actions_filing_attorney; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_legal_actions_filing_attorney ON public.legal_actions USING btree (tenant_id, filing_attorney_actor_id);
+
+
+--
 -- Name: idx_legal_holds_active; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5737,6 +6008,27 @@ CREATE INDEX ix_filing_bundles_legal_action ON public.filing_bundles USING btree
 
 
 --
+-- Name: pja_one_current_per_property_type_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX pja_one_current_per_property_type_idx ON public.property_jurisdiction_assignments USING btree (property_id, jurisdiction_type) WHERE (valid_to IS NULL);
+
+
+--
+-- Name: pja_property_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pja_property_history_idx ON public.property_jurisdiction_assignments USING btree (property_id, jurisdiction_type, valid_from DESC);
+
+
+--
+-- Name: pja_unit_boundary_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pja_unit_boundary_idx ON public.property_jurisdiction_assignments USING btree (jurisdiction_unit_id, boundary_id);
+
+
+--
 -- Name: properties_tenant_owner_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5762,6 +6054,27 @@ CREATE INDEX staging_maricopa_precincts_wkb_geometry_geom_idx ON public.staging_
 --
 
 CREATE INDEX tenant_client_profiles_tenant_id_client_actor_id_idx ON public.tenant_client_profiles USING btree (tenant_id, client_actor_id) WHERE (ends_at IS NULL);
+
+
+--
+-- Name: tenant_properties_added_by_user_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX tenant_properties_added_by_user_idx ON public.tenant_properties USING btree (tenant_id, added_by_user_id) WHERE (added_by_user_id IS NOT NULL);
+
+
+--
+-- Name: tenant_properties_property_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX tenant_properties_property_idx ON public.tenant_properties USING btree (property_id);
+
+
+--
+-- Name: tenant_properties_tenant_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX tenant_properties_tenant_status_idx ON public.tenant_properties USING btree (tenant_id, portfolio_status);
 
 
 --
@@ -5800,10 +6113,24 @@ CREATE UNIQUE INDEX uniq_one_demand_service_proof ON public.case_procedural_dead
 
 
 --
+-- Name: uq_attorney_filing_profiles_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_attorney_filing_profiles_active ON public.attorney_filing_profiles USING btree (tenant_id, actor_id) WHERE (effective_to IS NULL);
+
+
+--
 -- Name: uq_case_documents_demand_per_action; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX uq_case_documents_demand_per_action ON public.case_documents USING btree (tenant_id, case_id, source_action_request_id, document_type_key) WHERE ((document_type_key = 'az_demand_for_possession'::text) AND (source_action_request_id IS NOT NULL));
+
+
+--
+-- Name: uq_court_filing_locations_active_primary; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_court_filing_locations_active_primary ON public.court_filing_locations USING btree (court_id) WHERE ((is_primary = true) AND (effective_to IS NULL));
 
 
 --
@@ -6066,13 +6393,6 @@ CREATE TRIGGER trg_guard_case_documents BEFORE DELETE OR UPDATE ON public.case_d
 
 
 --
--- Name: case_venue_assignments trg_guard_case_venue_assignments; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_guard_case_venue_assignments BEFORE INSERT OR DELETE OR UPDATE ON public.case_venue_assignments FOR EACH ROW EXECUTE FUNCTION public.guard_legal_action_mutation();
-
-
---
 -- Name: demand_delivery_events trg_guard_demand_delivery_events; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -6202,6 +6522,22 @@ ALTER TABLE ONLY public.assignments
 
 ALTER TABLE ONLY public.assignments
     ADD CONSTRAINT assignments_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id);
+
+
+--
+-- Name: attorney_filing_profiles attorney_filing_profiles_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attorney_filing_profiles
+    ADD CONSTRAINT attorney_filing_profiles_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.actors(id) ON DELETE CASCADE;
+
+
+--
+-- Name: attorney_filing_profiles attorney_filing_profiles_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.attorney_filing_profiles
+    ADD CONSTRAINT attorney_filing_profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
 
 --
@@ -6498,6 +6834,14 @@ ALTER TABLE ONLY public.cases
 
 ALTER TABLE ONLY public.counties
     ADD CONSTRAINT counties_state_id_fkey FOREIGN KEY (state_id) REFERENCES public.states(id) ON DELETE CASCADE;
+
+
+--
+-- Name: court_filing_locations court_filing_locations_court_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.court_filing_locations
+    ADD CONSTRAINT court_filing_locations_court_id_fkey FOREIGN KEY (court_id) REFERENCES public.courts(id) ON DELETE CASCADE;
 
 
 --
@@ -7229,6 +7573,14 @@ ALTER TABLE ONLY public.legal_actions
 
 
 --
+-- Name: legal_actions legal_actions_filing_attorney_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.legal_actions
+    ADD CONSTRAINT legal_actions_filing_attorney_actor_id_fkey FOREIGN KEY (filing_attorney_actor_id) REFERENCES public.actors(id) ON DELETE SET NULL;
+
+
+--
 -- Name: legal_actions legal_actions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7338,6 +7690,30 @@ ALTER TABLE ONLY public.property_images
 
 ALTER TABLE ONLY public.property_images
     ADD CONSTRAINT property_images_tenant_fk FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
+
+
+--
+-- Name: property_jurisdiction_assignments property_jurisdiction_assignments_boundary_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_jurisdiction_assignments
+    ADD CONSTRAINT property_jurisdiction_assignments_boundary_id_fkey FOREIGN KEY (boundary_id) REFERENCES public.jurisdiction_unit_boundaries(id);
+
+
+--
+-- Name: property_jurisdiction_assignments property_jurisdiction_assignments_jurisdiction_unit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_jurisdiction_assignments
+    ADD CONSTRAINT property_jurisdiction_assignments_jurisdiction_unit_id_fkey FOREIGN KEY (jurisdiction_unit_id) REFERENCES public.jurisdiction_units(id);
+
+
+--
+-- Name: property_jurisdiction_assignments property_jurisdiction_assignments_property_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_jurisdiction_assignments
+    ADD CONSTRAINT property_jurisdiction_assignments_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id);
 
 
 --
@@ -7546,6 +7922,38 @@ ALTER TABLE ONLY public.tenant_invitations
 
 ALTER TABLE ONLY public.tenant_phase_permissions
     ADD CONSTRAINT tenant_phase_permissions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
+
+
+--
+-- Name: tenant_properties tenant_properties_added_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tenant_properties
+    ADD CONSTRAINT tenant_properties_added_by_user_id_fkey FOREIGN KEY (added_by_user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: tenant_properties tenant_properties_legacy_owner_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tenant_properties
+    ADD CONSTRAINT tenant_properties_legacy_owner_actor_id_fkey FOREIGN KEY (legacy_owner_actor_id) REFERENCES public.actors(id);
+
+
+--
+-- Name: tenant_properties tenant_properties_property_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tenant_properties
+    ADD CONSTRAINT tenant_properties_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id);
+
+
+--
+-- Name: tenant_properties tenant_properties_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tenant_properties
+    ADD CONSTRAINT tenant_properties_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id);
 
 
 --
